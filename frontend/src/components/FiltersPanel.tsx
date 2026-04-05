@@ -21,11 +21,11 @@ export function FiltersPanel({ value, onChange, onSubmit, onReset }: FiltersPane
         <div>
           <h3 className="text-lg font-semibold text-slate-950">Фильтры аналитики</h3>
           <p className="mt-1 text-sm text-slate-500">
-            Отфильтруйте данные по периоду, поставщику или категории.
+            Отфильтруйте данные по периоду и поставщику.
           </p>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           <label className="space-y-2 text-sm">
             <span className="font-medium text-slate-600">Дата от</span>
             <input
@@ -51,16 +51,6 @@ export function FiltersPanel({ value, onChange, onSubmit, onReset }: FiltersPane
               value={value.supplier_name}
               placeholder="Например, ООО Альфа"
               onChange={(event) => updateField("supplier_name", event.target.value)}
-              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-accent"
-            />
-          </label>
-          <label className="space-y-2 text-sm">
-            <span className="font-medium text-slate-600">Категория</span>
-            <input
-              type="text"
-              value={value.category_name}
-              placeholder="Например, ИТ-оборудование"
-              onChange={(event) => updateField("category_name", event.target.value)}
               className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-accent"
             />
           </label>

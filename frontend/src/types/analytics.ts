@@ -2,7 +2,6 @@ export interface AnalyticsFilters {
   date_from: string;
   date_to: string;
   supplier_name: string;
-  category_name: string;
 }
 
 export interface SummaryDto {

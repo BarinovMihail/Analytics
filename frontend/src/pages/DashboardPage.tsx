@@ -6,7 +6,6 @@ import { ErrorState } from "@/components/ErrorState";
 import { FiltersPanel } from "@/components/FiltersPanel";
 import { LoadingState } from "@/components/LoadingState";
 import { StatCard } from "@/components/StatCard";
-import { useAnalyticsByCategory } from "@/hooks/useAnalyticsByCategory";
 import { useAnalyticsByMonth } from "@/hooks/useAnalyticsByMonth";
 import { useAnalyticsByStatus } from "@/hooks/useAnalyticsByStatus";
 import { useAnalyticsBySuppliers } from "@/hooks/useAnalyticsBySuppliers";
@@ -19,7 +18,6 @@ const defaultFilters: AnalyticsFilters = {
   date_from: "",
   date_to: "",
   supplier_name: "",
-  category_name: "",
 };
 
 function chartBase(): Pick<EChartsOption, "grid" | "tooltip"> {
@@ -100,37 +98,6 @@ function buildHorizontalBarOption(points: AnalyticsPoint[]): EChartsOption {
   };
 }
 
-function buildBarOption(points: AnalyticsPoint[]): EChartsOption {
-  return {
-    ...chartBase(),
-    xAxis: {
-      type: "category",
-      data: points.map((point) => point.label),
-      axisLabel: {
-        color: "#475569",
-        interval: 0,
-        rotate: points.length > 4 ? 20 : 0,
-      },
-      axisLine: { lineStyle: { color: "#cbd5e1" } },
-    },
-    yAxis: {
-      type: "value",
-      axisLabel: { color: "#475569" },
-      splitLine: { lineStyle: { color: "#e2e8f0" } },
-    },
-    series: [
-      {
-        type: "bar",
-        data: points.map((point) => point.totalAmount),
-        itemStyle: {
-          color: "#14b8a6",
-          borderRadius: [10, 10, 0, 0],
-        },
-      },
-    ],
-  };
-}
-
 function buildDonutOption(points: AnalyticsPoint[]): EChartsOption {
   return {
     tooltip: {
@@ -173,21 +140,18 @@ export function DashboardPage() {
   const summaryQuery = useSummary(appliedFilters);
   const monthQuery = useAnalyticsByMonth(appliedFilters);
   const suppliersQuery = useAnalyticsBySuppliers(appliedFilters);
-  const categoryQuery = useAnalyticsByCategory(appliedFilters);
   const statusQuery = useAnalyticsByStatus(appliedFilters);
 
   const topSuppliers = useMemo(() => (suppliersQuery.data ?? []).slice(0, 8), [suppliersQuery.data]);
-  const topCategories = useMemo(() => (categoryQuery.data ?? []).slice(0, 8), [categoryQuery.data]);
 
   const hasError =
     summaryQuery.isError ||
     monthQuery.isError ||
     suppliersQuery.isError ||
-    categoryQuery.isError ||
     statusQuery.isError;
 
   const errorMessage = getApiErrorMessage(
-    summaryQuery.error ?? monthQuery.error ?? suppliersQuery.error ?? categoryQuery.error ?? statusQuery.error,
+    summaryQuery.error ?? monthQuery.error ?? suppliersQuery.error ?? statusQuery.error,
   );
 
   return (
@@ -258,18 +222,6 @@ export function DashboardPage() {
             subtitle="Поставщики с наибольшим объёмом закупок"
             option={buildHorizontalBarOption(topSuppliers)}
             hasData={Boolean(topSuppliers.length)}
-            height={340}
-          />
-        )}
-
-        {categoryQuery.isLoading ? (
-          <LoadingState lines={8} className="min-h-[390px]" />
-        ) : (
-          <ChartCard
-            title="Категории"
-            subtitle="Распределение закупок по категориям"
-            option={buildBarOption(topCategories)}
-            hasData={Boolean(topCategories.length)}
             height={340}
           />
         )}

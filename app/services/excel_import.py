@@ -85,7 +85,7 @@ class PurchasePayload(BaseModel):
     @field_validator("purchase_date", "delivery_date", mode="before")
     @classmethod
     def validate_date(cls, value: Any) -> Any:
-        return parse_date(value)
+        return parse_date(value, strict=False)
 
     @field_validator(
         "item_code",
@@ -246,7 +246,7 @@ def map_row_to_purchase(row: dict[str, Any], column_mapping: dict[str, str]) -> 
         or extract_inn(developer_name)
     )
 
-    purchase_date = parse_date(status_text) if status_text else None
+    purchase_date = parse_date(status_text, strict=False) if status_text else None
 
     return {
         "item_code": normalize_empty(get("item_code")),
