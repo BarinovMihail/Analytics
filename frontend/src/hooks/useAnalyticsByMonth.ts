@@ -8,5 +8,6 @@ export function useAnalyticsByMonth(filters: Partial<AnalyticsFilters>) {
   return useQuery({
     queryKey: queryKeys.byMonth(serializeAnalyticsFilters(filters)),
     queryFn: () => analyticsApi.getByMonth(filters),
+    refetchInterval: 15000,
   });
 }

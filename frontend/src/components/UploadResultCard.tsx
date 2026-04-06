@@ -28,7 +28,7 @@ export function UploadResultCard({ result }: UploadResultCardProps) {
         ) : null}
       </div>
 
-      <div className="mt-6 grid gap-4 sm:grid-cols-3">
+      <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-2xl bg-white p-4">
           <p className="text-sm text-slate-500">Всего строк</p>
           <p className="mt-2 text-2xl font-semibold text-slate-950">{formatNumber(result.rowsTotal)}</p>
@@ -40,6 +40,10 @@ export function UploadResultCard({ result }: UploadResultCardProps) {
         <div className="rounded-2xl bg-white p-4">
           <p className="text-sm text-slate-500">С ошибками</p>
           <p className="mt-2 text-2xl font-semibold text-slate-950">{formatNumber(result.rowsError)}</p>
+        </div>
+        <div className="rounded-2xl bg-white p-4">
+          <p className="text-sm text-slate-500">Дубликаты</p>
+          <p className="mt-2 text-2xl font-semibold text-slate-950">{formatNumber(result.rowsDuplicate)}</p>
         </div>
       </div>
     </section>

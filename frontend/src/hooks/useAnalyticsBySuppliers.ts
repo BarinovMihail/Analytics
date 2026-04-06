@@ -8,5 +8,6 @@ export function useAnalyticsBySuppliers(filters: Partial<AnalyticsFilters>) {
   return useQuery({
     queryKey: queryKeys.bySuppliers(serializeAnalyticsFilters(filters)),
     queryFn: () => analyticsApi.getBySuppliers(filters),
+    refetchInterval: 15000,
   });
 }

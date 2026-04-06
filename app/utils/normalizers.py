@@ -89,6 +89,9 @@ def extract_status_name(value: Any) -> str | None:
     text = compact_spaces(value)
     if text is None:
         return None
+    text = re.split(r"[.;]", text, maxsplit=1)[0].strip()
+    if not text:
+        return None
     match = re.match(r"^([^\d(]+)", text)
     if match:
         return match.group(1).strip()

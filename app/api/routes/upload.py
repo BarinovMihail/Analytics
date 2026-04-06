@@ -11,7 +11,7 @@ from app.core.database import get_db
 from app.models.import_batch import ImportBatch
 from app.models.import_error import ImportError
 from app.schemas.upload import ImportErrorItem, UploadBatchListItem, UploadResponse
-from app.services.excel_import import ExcelImportService
+from app.services.excel_import import DuplicateImportError, ExcelImportService
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +38,10 @@ async def upload_excel(
         )
 
     service = ExcelImportService(db)
-    batch = service.import_excel(file.filename, content)
+    try:
+        batch = service.import_excel(file.filename, content)
+    except DuplicateImportError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     logger.info("Import finished for file=%s batch_id=%s", file.filename, batch.id)
     return UploadResponse(
         batch_id=batch.id,
@@ -47,6 +50,7 @@ async def upload_excel(
         rows_total=batch.rows_total,
         rows_success=batch.rows_success,
         rows_error=batch.rows_error,
+        rows_duplicate=batch.rows_duplicate,
     )
 
 

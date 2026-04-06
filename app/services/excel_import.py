@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from io import BytesIO
 from typing import Any
 
 import pandas as pd
 from pydantic import BaseModel, ValidationError, field_validator
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.import_batch import ImportBatch
@@ -24,6 +27,10 @@ from app.utils.normalizers import (
 from app.utils.parsers import make_json_safe, parse_amount, parse_date
 
 logger = logging.getLogger(__name__)
+
+
+class DuplicateImportError(ValueError):
+    """Raised when the same Excel file content is uploaded more than once."""
 
 
 COLUMN_ALIASES: dict[str, set[str]] = {
@@ -115,7 +122,20 @@ class ExcelImportService:
         if not file_name.lower().endswith(".xlsx"):
             raise ValueError("Only .xlsx files are supported")
 
-        batch = ImportBatch(file_name=file_name, status="processing")
+        file_checksum = hashlib.sha256(content).hexdigest()
+        existing_batch = self.db.scalar(
+            select(ImportBatch).where(ImportBatch.file_checksum == file_checksum)
+        )
+        if existing_batch is not None and existing_batch.status != "failed":
+            raise DuplicateImportError(
+                "Этот Excel-файл уже был загружен ранее. Повторная загрузка дубликата запрещена."
+            )
+
+        batch = ImportBatch(
+            file_name=file_name,
+            file_checksum=file_checksum,
+            status="processing",
+        )
         self.db.add(batch)
         self.db.flush()
 
@@ -126,6 +146,8 @@ class ExcelImportService:
 
             rows_success = 0
             rows_error = 0
+            rows_duplicate = 0
+            seen_fingerprints: set[str] = set()
 
             for offset, row in enumerate(data_frame.to_dict(orient="records"), start=1):
                 excel_row_number = header_row_number + offset
@@ -133,8 +155,22 @@ class ExcelImportService:
                 try:
                     mapped_row = map_row_to_purchase(row, column_mapping)
                     payload = PurchasePayload.model_validate(mapped_row)
+                    row_fingerprint = build_purchase_fingerprint(payload)
+
+                    if row_fingerprint in seen_fingerprints or self._purchase_exists(row_fingerprint):
+                        rows_duplicate += 1
+                        logger.info(
+                            "Duplicate purchase skipped for batch=%s row=%s fingerprint=%s",
+                            batch.id,
+                            excel_row_number,
+                            row_fingerprint,
+                        )
+                        continue
+
+                    seen_fingerprints.add(row_fingerprint)
                     purchase = Purchase(
                         batch_id=batch.id,
+                        row_fingerprint=row_fingerprint,
                         raw_row_json=raw_row_json,
                         **payload.model_dump(),
                     )
@@ -159,7 +195,13 @@ class ExcelImportService:
 
             batch.rows_success = rows_success
             batch.rows_error = rows_error
-            batch.status = "completed" if rows_error == 0 else "completed_with_errors"
+            batch.rows_duplicate = rows_duplicate
+            if rows_error > 0:
+                batch.status = "completed_with_errors"
+            elif rows_duplicate > 0:
+                batch.status = "completed_with_duplicates"
+            else:
+                batch.status = "completed"
             self.db.commit()
             self.db.refresh(batch)
             return batch
@@ -221,6 +263,31 @@ class ExcelImportService:
 
     def _serialize_row(self, row: dict[str, Any]) -> dict[str, Any]:
         return {str(key): make_json_safe(value) for key, value in row.items()}
+
+    def _purchase_exists(self, row_fingerprint: str) -> bool:
+        existing_purchase_id = self.db.scalar(
+            select(Purchase.id).where(Purchase.row_fingerprint == row_fingerprint)
+        )
+        return existing_purchase_id is not None
+
+
+def build_purchase_fingerprint(payload: PurchasePayload) -> str:
+    fingerprint_payload = {
+        "item_code": payload.item_code or "",
+        "item_name": payload.item_name,
+        "supplier_name": payload.supplier_name,
+        "amount": str(payload.amount) if payload.amount is not None else "",
+        "purchase_date": payload.purchase_date.isoformat() if payload.purchase_date else "",
+        "delivery_date": payload.delivery_date.isoformat() if payload.delivery_date else "",
+        "status": payload.status or "",
+    }
+    serialized = json.dumps(
+        fingerprint_payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
 def map_row_to_purchase(row: dict[str, Any], column_mapping: dict[str, str]) -> dict[str, Any]:

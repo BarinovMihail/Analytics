@@ -13,6 +13,7 @@ class UploadResponse(BaseModel):
     rows_total: int
     rows_success: int
     rows_error: int
+    rows_duplicate: int
 
 
 class UploadBatchListItem(BaseModel):
@@ -25,6 +26,7 @@ class UploadBatchListItem(BaseModel):
     rows_total: int
     rows_success: int
     rows_error: int
+    rows_duplicate: int
 
 
 class ImportErrorItem(BaseModel):

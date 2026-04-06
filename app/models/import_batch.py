@@ -18,6 +18,7 @@ class ImportBatch(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     file_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    file_checksum: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True, index=True)
     uploaded_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -25,6 +26,7 @@ class ImportBatch(Base):
     rows_total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     rows_success: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     rows_error: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    rows_duplicate: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     purchases: Mapped[list["Purchase"]] = relationship(
         back_populates="batch",

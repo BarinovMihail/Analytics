@@ -11,6 +11,7 @@ export function adaptUploadResult(payload: unknown): UploadResult {
     rowsTotal: getNumber(data.rows_total),
     rowsSuccess: getNumber(data.rows_success),
     rowsError: getNumber(data.rows_error),
+    rowsDuplicate: getNumber(data.rows_duplicate),
   };
 }
 
@@ -26,6 +27,7 @@ export function adaptUploads(payload: unknown): UploadBatch[] {
       rowsTotal: getNumber(row.rows_total),
       rowsSuccess: getNumber(row.rows_success),
       rowsError: getNumber(row.rows_error),
+      rowsDuplicate: getNumber(row.rows_duplicate),
     };
   });
 }

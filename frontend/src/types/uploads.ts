@@ -6,6 +6,7 @@ export interface UploadBatch {
   rowsTotal: number;
   rowsSuccess: number;
   rowsError: number;
+  rowsDuplicate: number;
 }
 
 export interface UploadResult {
@@ -15,6 +16,7 @@ export interface UploadResult {
   rowsTotal: number;
   rowsSuccess: number;
   rowsError: number;
+  rowsDuplicate: number;
 }
 
 export interface UploadErrorItem {

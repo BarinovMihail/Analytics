@@ -8,5 +8,6 @@ export function useAnalyticsByStatus(filters: Partial<AnalyticsFilters>) {
   return useQuery({
     queryKey: queryKeys.byStatus(serializeAnalyticsFilters(filters)),
     queryFn: () => analyticsApi.getByStatus(filters),
+    refetchInterval: 15000,
   });
 }

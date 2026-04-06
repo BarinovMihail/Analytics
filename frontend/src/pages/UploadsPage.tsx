@@ -34,7 +34,7 @@ export function UploadsPage() {
         <p className="text-sm font-medium text-accent">Импорт</p>
         <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">История загрузок</h1>
         <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-500">
-          Последние пакеты импорта, статусы обработки и количество строк с ошибками.
+          Последние пакеты импорта, статусы обработки, ошибки и пропущенные дубликаты.
         </p>
       </section>
 
@@ -55,6 +55,7 @@ export function UploadsPage() {
           { key: "rowsTotal", title: "Всего", render: (row) => formatNumber(row.rowsTotal) },
           { key: "rowsSuccess", title: "Успешно", render: (row) => formatNumber(row.rowsSuccess) },
           { key: "rowsError", title: "Ошибки", render: (row) => formatNumber(row.rowsError) },
+          { key: "rowsDuplicate", title: "Дубликаты", render: (row) => formatNumber(row.rowsDuplicate) },
           {
             key: "actions",
             title: "Действие",

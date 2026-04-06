@@ -8,5 +8,6 @@ export function useSummary(filters: Partial<AnalyticsFilters>) {
   return useQuery({
     queryKey: queryKeys.summary(serializeAnalyticsFilters(filters)),
     queryFn: () => analyticsApi.getSummary(filters),
+    refetchInterval: 15000,
   });
 }

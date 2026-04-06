@@ -12,6 +12,7 @@ from app.schemas.analytics import (
     CategoryAnalyticsItem,
     MonthAnalyticsItem,
     StatusAnalyticsItem,
+    SupplierPurchaseItem,
     SupplierAnalyticsItem,
 )
 
@@ -153,6 +154,40 @@ class AnalyticsService:
                 total_amount=Decimal(row.total_amount or 0),
             )
             for row in self.db.execute(query)
+        ]
+
+    def supplier_purchases(
+        self,
+        supplier_name: str,
+        date_from: date | None = None,
+        date_to: date | None = None,
+        category_name: str | None = None,
+        limit: int = 200,
+    ) -> list[SupplierPurchaseItem]:
+        filters = self._build_filters(date_from, date_to, None, category_name)
+        query = (
+            select(Purchase)
+            .where(*filters)
+            .where(Purchase.supplier_name == supplier_name.strip())
+            .order_by(Purchase.purchase_date.desc(), Purchase.created_at.desc(), Purchase.id.desc())
+            .limit(limit)
+        )
+        purchases = self.db.scalars(query).all()
+
+        return [
+            SupplierPurchaseItem(
+                id=purchase.id,
+                batch_id=purchase.batch_id,
+                item_name=purchase.item_name,
+                item_code=purchase.item_code,
+                category_name=purchase.category_name,
+                amount=Decimal(purchase.amount) if purchase.amount is not None else None,
+                purchase_date=purchase.purchase_date,
+                delivery_date=purchase.delivery_date,
+                status=purchase.status,
+                created_at=purchase.created_at,
+            )
+            for purchase in purchases
         ]
 
     @staticmethod

@@ -11,6 +11,7 @@ from app.schemas.analytics import (
     CategoryAnalyticsItem,
     MonthAnalyticsItem,
     StatusAnalyticsItem,
+    SupplierPurchaseItem,
     SupplierAnalyticsItem,
 )
 from app.services.analytics import AnalyticsService
@@ -76,3 +77,22 @@ def analytics_by_status(
 ) -> list[StatusAnalyticsItem]:
     service = AnalyticsService(db)
     return service.by_status(date_from, date_to, supplier_name, category_name)
+
+
+@router.get("/supplier-purchases", response_model=list[SupplierPurchaseItem])
+def analytics_supplier_purchases(
+    supplier_name: str = Query(..., min_length=1),
+    date_from: date | None = Query(default=None),
+    date_to: date | None = Query(default=None),
+    category_name: str | None = Query(default=None),
+    limit: int = Query(default=200, ge=1, le=1000),
+    db: Session = Depends(get_db),
+) -> list[SupplierPurchaseItem]:
+    service = AnalyticsService(db)
+    return service.supplier_purchases(
+        supplier_name=supplier_name,
+        date_from=date_from,
+        date_to=date_to,
+        category_name=category_name,
+        limit=limit,
+    )
