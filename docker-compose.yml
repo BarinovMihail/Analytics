@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   db:
     image: mysql:8.4
@@ -22,33 +20,37 @@ services:
 
   api:
     build:
-      context: .
+      context: ./backend
+      dockerfile: Dockerfile    # ← явно указываем имя файла
     container_name: procurement_api
     restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
     environment:
-      APP_NAME: ${APP_NAME:-Procurement Analytics API}
-      ENVIRONMENT: ${ENVIRONMENT:-development}
-      DEBUG: ${DEBUG:-true}
-      MYSQL_HOST: ${MYSQL_HOST:-db}
-      MYSQL_PORT: ${MYSQL_PORT:-3306}
+      APP_NAME: Procurement Analytics API
+      ENVIRONMENT: development
+      DEBUG: "true"
+      MYSQL_HOST: db
+      MYSQL_PORT: 3306
       MYSQL_USER: ${MYSQL_USER:-procurement}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-procurement}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-procurement_db}
-      MYSQL_CHARSET: ${MYSQL_CHARSET:-utf8mb4}
-      CORS_ORIGINS_RAW: ${CORS_ORIGINS_RAW:-http://localhost:3000,http://localhost:5173}
-      UPLOAD_MAX_SIZE_MB: ${UPLOAD_MAX_SIZE_MB:-20}
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      MYSQL_CHARSET: utf8mb4
+      CORS_ORIGINS_RAW: "http://localhost:3000,http://localhost:5173"
+      UPLOAD_MAX_SIZE_MB: 20
+      LOG_LEVEL: INFO
     ports:
       - "8000:8000"
     volumes:
-      - .:/app
+      - ./backend:/app
 
   frontend:
     build:
       context: ./frontend
+      dockerfile: Dockerfile    # ← явно указываем имя файла
+      args:
+        VITE_API_URL: http://localhost:8000
     container_name: procurement_frontend
     restart: unless-stopped
     depends_on:
