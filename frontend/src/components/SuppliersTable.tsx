@@ -9,7 +9,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { ErrorState } from "@/components/ErrorState";
 import { LoadingState } from "@/components/LoadingState";
 import { cn } from "@/utils/cn";
-import { formatCurrency, formatDate, formatEmpty, formatNumber } from "@/utils/format";
+import { formatCurrency, formatDate, formatNumber } from "@/utils/format";
 
 interface SuppliersTableProps {
   suppliers: SupplierRegistryItem[];
@@ -70,8 +70,7 @@ export function SuppliersTable({
 
         return (
           supplier.supplierName.toLowerCase().includes(normalizedSearch) ||
-          (supplier.supplierInn ?? "").toLowerCase().includes(normalizedSearch) ||
-          (supplier.primaryCategory ?? "").toLowerCase().includes(normalizedSearch)
+          (supplier.supplierInn ?? "").toLowerCase().includes(normalizedSearch)
         );
       })
       .sort((left, right) => compareSuppliers(left, right, sortKey, sortDirection));
@@ -122,7 +121,7 @@ export function SuppliersTable({
                 setSearch(event.target.value);
                 setPage(1);
               }}
-              placeholder="Быстрый поиск по поставщику, ИНН или категории"
+              placeholder="Быстрый поиск по поставщику"
               className="w-full rounded-2xl border border-slate-200 bg-white py-2.5 pl-11 pr-4 text-sm outline-none transition focus:border-accent"
             />
           </label>
@@ -146,11 +145,9 @@ export function SuppliersTable({
               <thead className="sticky top-0 z-10 bg-white">
                 <tr className="text-left">
                   <HeaderCell title="Поставщик" onClick={() => handleSort("supplierName")} />
-                  <HeaderCell title="ИНН" onClick={() => handleSort("supplierInn")} />
                   <HeaderCell title="Кол-во закупок" onClick={() => handleSort("purchasesCount")} align="right" />
                   <HeaderCell title="Общая сумма" onClick={() => handleSort("totalAmount")} align="right" />
                   <HeaderCell title="Последняя закупка" onClick={() => handleSort("latestPurchaseDate")} />
-                  <HeaderCell title="Категория" onClick={() => handleSort("primaryCategory")} />
                   <HeaderCell title="Активность" onClick={() => handleSort("activity")} />
                   <th className="border-b border-slate-200 bg-white px-5 py-3 text-right text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
                     Дальше
@@ -186,9 +183,6 @@ export function SuppliersTable({
                           </p>
                         </div>
                       </td>
-                      <td className="border-b border-slate-100 px-5 py-4 text-sm text-slate-600">
-                        {formatEmpty(supplier.supplierInn)}
-                      </td>
                       <td className="border-b border-slate-100 px-5 py-4 text-right text-sm font-medium text-slate-900">
                         {formatNumber(supplier.purchasesCount)}
                       </td>
@@ -197,9 +191,6 @@ export function SuppliersTable({
                       </td>
                       <td className="border-b border-slate-100 px-5 py-4 text-sm text-slate-600">
                         {formatDate(supplier.latestPurchaseDate)}
-                      </td>
-                      <td className="border-b border-slate-100 px-5 py-4 text-sm text-slate-600">
-                        {formatEmpty(supplier.primaryCategory)}
                       </td>
                       <td className="border-b border-slate-100 px-5 py-4 text-sm">
                         <span

@@ -45,39 +45,21 @@ export function DashboardPage() {
 
   return (
     <div className="space-y-5">
-      <section className="rounded-[30px] border border-slate-200 bg-white px-5 py-5 shadow-sm">
-        <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
-          <div className="max-w-3xl">
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
-              Procurement Analytics
-            </p>
-            <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">
-              Поставщики как главный рабочий реестр
-            </h1>
-            <p className="mt-3 text-sm leading-6 text-slate-500">
-              Главная страница теперь сосредоточена на полном списке поставщиков. Сначала реестр,
-              потом вторичная аналитика. Это позволяет искать, сортировать и анализировать
-              поставщиков быстрее, чем через графики.
-            </p>
-          </div>
-
-          <div className="flex flex-wrap gap-3">
-            <Link
-              to="/upload"
-              className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
-            >
-              <UploadCloud className="h-4 w-4" />
-              Загрузить файл
-            </Link>
-            <Link
-              to="/uploads"
-              className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-            >
-              История загрузок
-              <ArrowRight className="h-4 w-4" />
-            </Link>
-          </div>
-        </div>
+      <section className="flex flex-wrap gap-3">
+        <Link
+          to="/upload"
+          className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
+        >
+          <UploadCloud className="h-4 w-4" />
+          Загрузить файл
+        </Link>
+        <Link
+          to="/uploads"
+          className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+        >
+          История загрузок
+          <ArrowRight className="h-4 w-4" />
+        </Link>
       </section>
 
       <DashboardFilterBar
