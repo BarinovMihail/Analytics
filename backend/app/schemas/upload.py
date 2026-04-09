@@ -38,3 +38,8 @@ class ImportErrorItem(BaseModel):
     error_message: str
     raw_row_json: dict[str, Any]
     created_at: datetime
+
+
+class DeleteBatchResponse(BaseModel):
+    batch_id: int
+    status: str

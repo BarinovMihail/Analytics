@@ -7,6 +7,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes.analytics import router as analytics_router
+from app.api.routes.cards import router as cards_router
+from app.api.routes.compare import router as compare_router
 from app.api.routes.upload import router as upload_router
 from app.core.config import settings
 from app.core.database import ping_database
@@ -20,11 +22,11 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(
-    title=settings.app_name,
+    title="MTR Cards Analytics API",
     version="1.0.0",
     description=(
-        "API for importing procurement data from Excel files and viewing "
-        "aggregated analytics."
+        "API for importing BRIF MTR cards, filtering them by characteristics, "
+        "and exporting comparison results."
     ),
     lifespan=lifespan,
 )
@@ -38,6 +40,8 @@ app.add_middleware(
 )
 
 app.include_router(upload_router)
+app.include_router(cards_router)
+app.include_router(compare_router)
 app.include_router(analytics_router)
 
 

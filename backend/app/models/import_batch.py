@@ -9,8 +9,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
 
 if TYPE_CHECKING:
+    from app.models.mtr_card import MtrCard
     from app.models.import_error import ImportError
-    from app.models.purchase import Purchase
 
 
 class ImportBatch(Base):
@@ -28,7 +28,7 @@ class ImportBatch(Base):
     rows_error: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     rows_duplicate: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
-    purchases: Mapped[list["Purchase"]] = relationship(
+    mtr_cards: Mapped[list["MtrCard"]] = relationship(
         back_populates="batch",
         cascade="all, delete-orphan",
     )

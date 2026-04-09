@@ -5,7 +5,13 @@ from sqlalchemy import engine_from_config, pool
 
 from app.core.config import settings
 from app.core.database import Base
-from app.models import ImportBatch, ImportError, Purchase  # noqa: F401
+from app.models import (  # noqa: F401
+    CardCharacteristic,
+    ComparisonTask,
+    ImportBatch,
+    ImportError,
+    MtrCard,
+)
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.sqlalchemy_database_uri)
