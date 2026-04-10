@@ -1,98 +1,125 @@
 from __future__ import annotations
 
-from datetime import date
-
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.schemas.analytics import (
-    AnalyticsSummaryResponse,
-    CategoryAnalyticsItem,
-    MonthAnalyticsItem,
-    StatusAnalyticsItem,
-    SupplierPurchaseItem,
-    SupplierAnalyticsItem,
+    ConnectionTypeStat,
+    DnStat,
+    ManufacturerStat,
+    PriceRangeStat,
+    SafetyClassStat,
+    SummaryResponse,
 )
 from app.services.analytics import AnalyticsService
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 
 
-@router.get("/summary", response_model=AnalyticsSummaryResponse)
-def analytics_summary(
-    date_from: date | None = Query(default=None),
-    date_to: date | None = Query(default=None),
-    supplier_name: str | None = Query(default=None),
-    category_name: str | None = Query(default=None),
-    db: Session = Depends(get_db),
-) -> AnalyticsSummaryResponse:
-    service = AnalyticsService(db)
-    return service.get_summary(date_from, date_to, supplier_name, category_name)
+@router.get(
+    "/summary",
+    response_model=SummaryResponse,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "total_cards": 1500,
+                        "unique_manufacturers": 32,
+                        "cards_with_price": 1290,
+                        "avg_price": "98124.33",
+                        "last_upload_date": "2026-04-10T08:10:00Z",
+                    }
+                }
+            }
+        }
+    },
+)
+def analytics_summary(db: Session = Depends(get_db)) -> SummaryResponse:
+    return AnalyticsService(db).get_summary()
 
 
-@router.get("/by-suppliers", response_model=list[SupplierAnalyticsItem])
-def analytics_by_suppliers(
-    date_from: date | None = Query(default=None),
-    date_to: date | None = Query(default=None),
-    supplier_name: str | None = Query(default=None),
-    category_name: str | None = Query(default=None),
-    db: Session = Depends(get_db),
-) -> list[SupplierAnalyticsItem]:
-    service = AnalyticsService(db)
-    return service.by_suppliers(date_from, date_to, supplier_name, category_name)
+@router.get(
+    "/by-manufacturer",
+    response_model=list[ManufacturerStat],
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": [{"manufacturer_inn": "7701234567", "cards_count": 48}]
+                }
+            }
+        }
+    },
+)
+def analytics_by_manufacturer(db: Session = Depends(get_db)) -> list[ManufacturerStat]:
+    return AnalyticsService(db).by_manufacturer()
 
 
-@router.get("/by-month", response_model=list[MonthAnalyticsItem])
-def analytics_by_month(
-    date_from: date | None = Query(default=None),
-    date_to: date | None = Query(default=None),
-    supplier_name: str | None = Query(default=None),
-    category_name: str | None = Query(default=None),
-    db: Session = Depends(get_db),
-) -> list[MonthAnalyticsItem]:
-    service = AnalyticsService(db)
-    return service.by_month(date_from, date_to, supplier_name, category_name)
+@router.get(
+    "/by-dn",
+    response_model=list[DnStat],
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": [{"dn_value": "20.0000", "cards_count": 25}]
+                }
+            }
+        }
+    },
+)
+def analytics_by_dn(db: Session = Depends(get_db)) -> list[DnStat]:
+    return AnalyticsService(db).by_dn()
 
 
-@router.get("/by-category", response_model=list[CategoryAnalyticsItem])
-def analytics_by_category(
-    date_from: date | None = Query(default=None),
-    date_to: date | None = Query(default=None),
-    supplier_name: str | None = Query(default=None),
-    category_name: str | None = Query(default=None),
-    db: Session = Depends(get_db),
-) -> list[CategoryAnalyticsItem]:
-    service = AnalyticsService(db)
-    return service.by_category(date_from, date_to, supplier_name, category_name)
+@router.get(
+    "/by-connection-type",
+    response_model=list[ConnectionTypeStat],
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": [{"connection_type": "под приварку", "cards_count": 41}]
+                }
+            }
+        }
+    },
+)
+def analytics_by_connection_type(db: Session = Depends(get_db)) -> list[ConnectionTypeStat]:
+    return AnalyticsService(db).by_connection_type()
 
 
-@router.get("/by-status", response_model=list[StatusAnalyticsItem])
-def analytics_by_status(
-    date_from: date | None = Query(default=None),
-    date_to: date | None = Query(default=None),
-    supplier_name: str | None = Query(default=None),
-    category_name: str | None = Query(default=None),
-    db: Session = Depends(get_db),
-) -> list[StatusAnalyticsItem]:
-    service = AnalyticsService(db)
-    return service.by_status(date_from, date_to, supplier_name, category_name)
+@router.get(
+    "/by-safety-class",
+    response_model=list[SafetyClassStat],
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": [{"safety_class": "4", "cards_count": 58}]
+                }
+            }
+        }
+    },
+)
+def analytics_by_safety_class(db: Session = Depends(get_db)) -> list[SafetyClassStat]:
+    return AnalyticsService(db).by_safety_class()
 
 
-@router.get("/supplier-purchases", response_model=list[SupplierPurchaseItem])
-def analytics_supplier_purchases(
-    supplier_name: str = Query(..., min_length=1),
-    date_from: date | None = Query(default=None),
-    date_to: date | None = Query(default=None),
-    category_name: str | None = Query(default=None),
-    limit: int = Query(default=200, ge=1, le=1000),
-    db: Session = Depends(get_db),
-) -> list[SupplierPurchaseItem]:
-    service = AnalyticsService(db)
-    return service.supplier_purchases(
-        supplier_name=supplier_name,
-        date_from=date_from,
-        date_to=date_to,
-        category_name=category_name,
-        limit=limit,
-    )
+@router.get(
+    "/price-range",
+    response_model=list[PriceRangeStat],
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": [{"range_label": "100 000 - 999 999", "cards_count": 112}]
+                }
+            }
+        }
+    },
+)
+def analytics_price_range(db: Session = Depends(get_db)) -> list[PriceRangeStat]:
+    return AnalyticsService(db).price_range()

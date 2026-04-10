@@ -1,0 +1,171 @@
+"""replace purchases with mtr cards
+
+Revision ID: 20260410_0004
+Revises: 20260406_0003
+Create Date: 2026-04-10 00:00:00
+"""
+
+from __future__ import annotations
+
+from alembic import op
+import sqlalchemy as sa
+from sqlalchemy.dialects import mysql
+
+
+revision = "20260410_0004"
+down_revision = "20260406_0003"
+branch_labels = None
+depends_on = None
+
+
+characteristic_type_enum = sa.Enum(
+    "number",
+    "range",
+    "list",
+    "multivalue",
+    "string",
+    name="characteristic_type_enum",
+)
+
+
+def upgrade() -> None:
+    op.drop_index("ix_purchases_row_fingerprint", table_name="purchases")
+    op.drop_index("ix_purchases_status", table_name="purchases")
+    op.drop_index("ix_purchases_amount", table_name="purchases")
+    op.drop_index("ix_purchases_customer_inn", table_name="purchases")
+    op.drop_index("ix_purchases_supplier_inn", table_name="purchases")
+    op.drop_index("ix_purchases_supplier_name", table_name="purchases")
+    op.drop_index("ix_purchases_purchase_date", table_name="purchases")
+    op.drop_index("ix_purchases_category_name", table_name="purchases")
+    op.drop_index("ix_purchases_category_code", table_name="purchases")
+    op.drop_index("ix_purchases_item_name", table_name="purchases")
+    op.drop_index("ix_purchases_item_code", table_name="purchases")
+    op.drop_index("ix_purchases_batch_id", table_name="purchases")
+    op.drop_index("ix_purchases_id", table_name="purchases")
+    op.drop_table("purchases")
+
+    op.create_table(
+        "mtr_cards",
+        sa.Column("id", sa.Integer(), primary_key=True),
+        sa.Column("batch_id", sa.Integer(), sa.ForeignKey("import_batches.id"), nullable=False),
+        sa.Column("guid", sa.String(length=36), nullable=False),
+        sa.Column("name", sa.Text(), nullable=False),
+        sa.Column("manufacturer_inn", sa.String(length=20), nullable=True),
+        sa.Column("manufacturer_inio", sa.String(length=50), nullable=True),
+        sa.Column("country_code", sa.String(length=10), nullable=True),
+        sa.Column("article", sa.String(length=255), nullable=True),
+        sa.Column("price", sa.Numeric(precision=18, scale=2), nullable=True),
+        sa.Column("price_date_start", sa.Date(), nullable=True),
+        sa.Column("price_date_end", sa.Date(), nullable=True),
+        sa.Column("description", mysql.LONGTEXT(), nullable=True),
+        sa.Column("raw_row_json", sa.JSON(), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.UniqueConstraint("guid", name="uq_mtr_cards_guid"),
+    )
+    op.create_index("ix_mtr_cards_id", "mtr_cards", ["id"])
+    op.create_index("ix_mtr_cards_batch_id", "mtr_cards", ["batch_id"])
+    op.create_index("ix_mtr_cards_guid", "mtr_cards", ["guid"])
+    op.create_index("ix_mtr_cards_country_code", "mtr_cards", ["country_code"])
+    op.create_index("ix_mtr_cards_manufacturer_inn", "mtr_cards", ["manufacturer_inn"])
+    op.create_index("ix_mtr_cards_article", "mtr_cards", ["article"])
+    op.create_index("ix_mtr_cards_price", "mtr_cards", ["price"])
+    op.create_index("ix_mtr_cards_name", "mtr_cards", ["name"], mysql_length=255)
+
+    characteristic_type_enum.create(op.get_bind(), checkfirst=True)
+    op.create_table(
+        "card_characteristics",
+        sa.Column("id", sa.Integer(), primary_key=True),
+        sa.Column("card_id", sa.Integer(), sa.ForeignKey("mtr_cards.id"), nullable=False),
+        sa.Column("char_name", sa.String(length=500), nullable=False),
+        sa.Column("char_value_raw", sa.Text(), nullable=True),
+        sa.Column("char_unit", sa.String(length=100), nullable=True),
+        sa.Column("char_type", characteristic_type_enum, nullable=False),
+        sa.Column("value_numeric", sa.Numeric(precision=18, scale=4), nullable=True),
+        sa.Column("range_min", sa.Numeric(precision=18, scale=4), nullable=True),
+        sa.Column("range_max", sa.Numeric(precision=18, scale=4), nullable=True),
+        sa.Column("value_text", sa.Text(), nullable=True),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+    )
+    op.create_index("ix_card_characteristics_id", "card_characteristics", ["id"])
+    op.create_index("ix_card_characteristics_card_id", "card_characteristics", ["card_id"])
+    op.create_index("ix_card_characteristics_char_name", "card_characteristics", ["char_name"], mysql_length=255)
+    op.create_index("ix_card_characteristics_value_numeric", "card_characteristics", ["value_numeric"])
+
+    op.create_table(
+        "comparison_tasks",
+        sa.Column("id", sa.Integer(), primary_key=True),
+        sa.Column("name", sa.String(length=255), nullable=False),
+        sa.Column("filter_params_json", sa.JSON(), nullable=False),
+        sa.Column("total_cards", sa.Integer(), nullable=False, server_default="0"),
+        sa.Column("matched_cards", sa.Integer(), nullable=False, server_default="0"),
+        sa.Column("output_file_path", sa.String(length=500), nullable=True),
+        sa.Column("status", sa.String(length=20), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column("finished_at", sa.DateTime(timezone=True), nullable=True),
+    )
+    op.create_index("ix_comparison_tasks_id", "comparison_tasks", ["id"])
+    op.create_index("ix_comparison_tasks_name", "comparison_tasks", ["name"])
+    op.create_index("ix_comparison_tasks_status", "comparison_tasks", ["status"])
+
+
+def downgrade() -> None:
+    op.drop_index("ix_comparison_tasks_status", table_name="comparison_tasks")
+    op.drop_index("ix_comparison_tasks_name", table_name="comparison_tasks")
+    op.drop_index("ix_comparison_tasks_id", table_name="comparison_tasks")
+    op.drop_table("comparison_tasks")
+
+    op.drop_index("ix_card_characteristics_value_numeric", table_name="card_characteristics")
+    op.drop_index("ix_card_characteristics_char_name", table_name="card_characteristics")
+    op.drop_index("ix_card_characteristics_card_id", table_name="card_characteristics")
+    op.drop_index("ix_card_characteristics_id", table_name="card_characteristics")
+    op.drop_table("card_characteristics")
+    characteristic_type_enum.drop(op.get_bind(), checkfirst=True)
+
+    op.drop_index("ix_mtr_cards_name", table_name="mtr_cards")
+    op.drop_index("ix_mtr_cards_price", table_name="mtr_cards")
+    op.drop_index("ix_mtr_cards_article", table_name="mtr_cards")
+    op.drop_index("ix_mtr_cards_manufacturer_inn", table_name="mtr_cards")
+    op.drop_index("ix_mtr_cards_country_code", table_name="mtr_cards")
+    op.drop_index("ix_mtr_cards_guid", table_name="mtr_cards")
+    op.drop_index("ix_mtr_cards_batch_id", table_name="mtr_cards")
+    op.drop_index("ix_mtr_cards_id", table_name="mtr_cards")
+    op.drop_table("mtr_cards")
+
+    op.create_table(
+        "purchases",
+        sa.Column("id", sa.Integer(), primary_key=True),
+        sa.Column("batch_id", sa.Integer(), sa.ForeignKey("import_batches.id"), nullable=False),
+        sa.Column("item_code", sa.String(length=255), nullable=True),
+        sa.Column("item_name", sa.String(length=500), nullable=False),
+        sa.Column("category_code", sa.String(length=100), nullable=True),
+        sa.Column("category_name", sa.String(length=255), nullable=True),
+        sa.Column("purchase_date", sa.Date(), nullable=True),
+        sa.Column("supplier_name", sa.String(length=255), nullable=False),
+        sa.Column("supplier_inn", sa.String(length=32), nullable=True),
+        sa.Column("supplier_contact", sa.String(length=255), nullable=True),
+        sa.Column("supplier_email", sa.String(length=255), nullable=True),
+        sa.Column("customer_inn", sa.String(length=32), nullable=True),
+        sa.Column("amount", sa.Numeric(precision=18, scale=2), nullable=True),
+        sa.Column("delivery_date", sa.Date(), nullable=True),
+        sa.Column("status", sa.String(length=255), nullable=True),
+        sa.Column("unit_name", sa.String(length=100), nullable=True),
+        sa.Column("origin_country", sa.String(length=100), nullable=True),
+        sa.Column("manufacturer_name", sa.String(length=255), nullable=True),
+        sa.Column("developer_name", sa.String(length=255), nullable=True),
+        sa.Column("row_fingerprint", sa.String(length=64), nullable=True),
+        sa.Column("raw_row_json", sa.JSON(), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+    )
+    op.create_index("ix_purchases_id", "purchases", ["id"])
+    op.create_index("ix_purchases_batch_id", "purchases", ["batch_id"])
+    op.create_index("ix_purchases_item_code", "purchases", ["item_code"])
+    op.create_index("ix_purchases_item_name", "purchases", ["item_name"])
+    op.create_index("ix_purchases_category_code", "purchases", ["category_code"])
+    op.create_index("ix_purchases_category_name", "purchases", ["category_name"])
+    op.create_index("ix_purchases_purchase_date", "purchases", ["purchase_date"])
+    op.create_index("ix_purchases_supplier_name", "purchases", ["supplier_name"])
+    op.create_index("ix_purchases_supplier_inn", "purchases", ["supplier_inn"])
+    op.create_index("ix_purchases_customer_inn", "purchases", ["customer_inn"])
+    op.create_index("ix_purchases_amount", "purchases", ["amount"])
+    op.create_index("ix_purchases_status", "purchases", ["status"])
+    op.create_index("ix_purchases_row_fingerprint", "purchases", ["row_fingerprint"])

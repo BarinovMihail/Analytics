@@ -1,51 +1,39 @@
 from __future__ import annotations
 
-from datetime import date
 from datetime import datetime
 from decimal import Decimal
 
 from pydantic import BaseModel
 
 
-class AnalyticsSummaryResponse(BaseModel):
-    total_purchases_count: int
-    total_amount: Decimal
-    unique_suppliers: int
-    latest_purchase_date: date | None
+class SummaryResponse(BaseModel):
+    total_cards: int
+    unique_manufacturers: int
+    cards_with_price: int
+    avg_price: Decimal | None
+    last_upload_date: datetime | None
 
 
-class SupplierAnalyticsItem(BaseModel):
-    supplier_name: str
-    purchases_count: int
-    total_amount: Decimal
+class ManufacturerStat(BaseModel):
+    manufacturer_inn: str
+    cards_count: int
 
 
-class MonthAnalyticsItem(BaseModel):
-    year_month: str
-    purchases_count: int
-    total_amount: Decimal
+class DnStat(BaseModel):
+    dn_value: Decimal | None
+    cards_count: int
 
 
-class CategoryAnalyticsItem(BaseModel):
-    category_name: str
-    purchases_count: int
-    total_amount: Decimal
+class ConnectionTypeStat(BaseModel):
+    connection_type: str
+    cards_count: int
 
 
-class StatusAnalyticsItem(BaseModel):
-    status: str
-    purchases_count: int
-    total_amount: Decimal
+class SafetyClassStat(BaseModel):
+    safety_class: str
+    cards_count: int
 
 
-class SupplierPurchaseItem(BaseModel):
-    id: int
-    batch_id: int
-    item_name: str
-    item_code: str | None
-    category_name: str | None
-    amount: Decimal | None
-    purchase_date: date | None
-    delivery_date: date | None
-    status: str | None
-    created_at: datetime
+class PriceRangeStat(BaseModel):
+    range_label: str
+    cards_count: int

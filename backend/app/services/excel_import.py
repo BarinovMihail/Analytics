@@ -1,117 +1,59 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
+import math
+import re
+from dataclasses import dataclass
+from datetime import date, datetime
+from decimal import Decimal, InvalidOperation
 from io import BytesIO
 from typing import Any
 
 import pandas as pd
-from pydantic import BaseModel, ValidationError, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.models.card_characteristic import CardCharacteristic, CharacteristicType
 from app.models.import_batch import ImportBatch
 from app.models.import_error import ImportError
-from app.models.purchase import Purchase
-from app.utils.normalizers import (
-    compact_spaces,
-    extract_email,
-    extract_inn,
-    extract_status_name,
-    normalize_column_name,
-    normalize_column_names,
-    normalize_empty,
-    split_classifier,
-)
-from app.utils.parsers import make_json_safe, parse_amount, parse_date
+from app.models.mtr_card import MtrCard
+from app.utils.normalizers import compact_spaces, normalize_column_name, normalize_empty
+from app.utils.parsers import make_json_safe
 
 logger = logging.getLogger(__name__)
+
+MAIN_FIELDS = {
+    "guid": {"guid"},
+    "name": {"наименование"},
+    "manufacturer_inn": {"инн изготовителя"},
+    "manufacturer_inio": {"инио изготовителя"},
+    "country_code": {"страна регистрации изготовителя код оксм", "страна регистрации изготовителя код оксм"},
+    "article": {"артикул"},
+    "price": {"цена exw без ндс"},
+    "price_date_start": {"дата начала действия цены"},
+    "price_date_end": {"плановая дата окончания действия цены"},
+    "description": {"описание"},
+}
+MAIN_FIELD_LAST_INDEX = 10
+CHARACTERISTICS_START_INDEX = 11
+EMPTY_CHARACTERISTIC_MARKERS = {"", "-", "00", "00/00"}
 
 
 class DuplicateImportError(ValueError):
     """Raised when the same Excel file content is uploaded more than once."""
 
 
-COLUMN_ALIASES: dict[str, set[str]] = {
-    "item_name": {"наименование продукции", "наименование товара", "товар", "продукция"},
-    "item_code": {"артикул", "код товара", "код продукции", "обозначение", "артикул товара"},
-    "supplier_name": {"наименование поставщика", "поставщик", "supplier", "поставщик/контрагент"},
-    "category": {"классификатор окпд2", "окпд2", "код окпд2"},
-    "category_mtrio": {"классификатор мтрио", "мтрио", "класс мтрио"},
-    "unit_name": {"базовая единица измерения", "единица измерения", "ед. изм"},
-    "origin_country": {"страна происхождения", "страна"},
-    "status_text": {"статус продукции", "статус", "состояние"},
-    "amount": {"цена exw без ндс", "сумма", "стоимость", "цена", "amount"},
-    "delivery_date": {
-        "дата окончания действия цены",
-        "дата поставки",
-        "срок поставки",
-        "delivery date",
-    },
-    "manufacturer_name": {"наименование изготовителя", "изготовитель", "manufacturer"},
-    "developer_name": {"разработчик", "developer"},
-    "customer_inn": {"инн заказчика", "заказчик инн", "customer inn"},
-    "supplier_contact": {"контакт поставщика", "supplier contact", "контакт"},
-    "supplier_email": {"email", "e-mail", "почта поставщика", "supplier email"},
-}
-
-
-class PurchasePayload(BaseModel):
-    item_code: str | None
-    item_name: str
-    category_code: str | None
-    category_name: str | None
-    purchase_date: Any | None
-    supplier_name: str
-    supplier_inn: str | None
-    supplier_contact: str | None
-    supplier_email: str | None
-    customer_inn: str | None
-    amount: Any | None
-    delivery_date: Any | None
-    status: str | None
-    unit_name: str | None
-    origin_country: str | None
-    manufacturer_name: str | None
-    developer_name: str | None
-
-    @field_validator("item_name", "supplier_name")
-    @classmethod
-    def validate_required_strings(cls, value: str) -> str:
-        normalized = compact_spaces(value)
-        if not normalized:
-            raise ValueError("Field is required")
-        return normalized
-
-    @field_validator("amount", mode="before")
-    @classmethod
-    def validate_amount(cls, value: Any) -> Any:
-        return parse_amount(value)
-
-    @field_validator("purchase_date", "delivery_date", mode="before")
-    @classmethod
-    def validate_date(cls, value: Any) -> Any:
-        return parse_date(value, strict=False)
-
-    @field_validator(
-        "item_code",
-        "category_code",
-        "category_name",
-        "supplier_inn",
-        "supplier_contact",
-        "supplier_email",
-        "customer_inn",
-        "status",
-        "unit_name",
-        "origin_country",
-        "manufacturer_name",
-        "developer_name",
-        mode="before",
-    )
-    @classmethod
-    def normalize_optional_strings(cls, value: Any) -> Any:
-        return compact_spaces(value)
+@dataclass
+class ParsedCharacteristic:
+    char_name: str
+    char_value_raw: str | None
+    char_unit: str | None
+    char_type: CharacteristicType
+    value_numeric: Decimal | None = None
+    range_min: Decimal | None = None
+    range_max: Decimal | None = None
+    value_text: str | None = None
 
 
 class ExcelImportService:
@@ -127,9 +69,7 @@ class ExcelImportService:
             select(ImportBatch).where(ImportBatch.file_checksum == file_checksum)
         )
         if existing_batch is not None and existing_batch.status != "failed":
-            raise DuplicateImportError(
-                "Этот Excel-файл уже был загружен ранее. Повторная загрузка дубликата запрещена."
-            )
+            raise DuplicateImportError("Этот Excel-файл уже был загружен ранее.")
 
         batch = ImportBatch(
             file_name=file_name,
@@ -140,43 +80,66 @@ class ExcelImportService:
         self.db.flush()
 
         try:
-            data_frame, header_row_number = self._read_excel(content)
+            meta_info, header_row_number, headers, data_frame = self._read_excel(content)
+            logger.info(
+                "Importing BRIF cards for batch=%s class_meta=%s",
+                batch.id,
+                meta_info,
+            )
+
             batch.rows_total = len(data_frame.index)
-            column_mapping = self._build_column_mapping(list(data_frame.columns))
+            field_indexes = self._build_main_field_indexes(headers)
 
             rows_success = 0
             rows_error = 0
             rows_duplicate = 0
-            seen_fingerprints: set[str] = set()
+            seen_guids: set[str] = set()
+            characteristic_mappings: list[dict[str, Any]] = []
 
-            for offset, row in enumerate(data_frame.to_dict(orient="records"), start=1):
-                excel_row_number = header_row_number + offset
-                raw_row_json = self._serialize_row(row)
+            for row_offset, row_values in enumerate(data_frame.values.tolist(), start=1):
+                excel_row_number = header_row_number + row_offset + 1
+                raw_row_json = self._serialize_row(headers, row_values)
                 try:
-                    mapped_row = map_row_to_purchase(row, column_mapping)
-                    payload = PurchasePayload.model_validate(mapped_row)
-                    row_fingerprint = build_purchase_fingerprint(payload)
+                    card_payload = self._parse_card_row(row_values, field_indexes)
+                    guid = card_payload["guid"]
 
-                    if row_fingerprint in seen_fingerprints or self._purchase_exists(row_fingerprint):
+                    if guid in seen_guids or self._guid_exists(guid):
                         rows_duplicate += 1
                         logger.info(
-                            "Duplicate purchase skipped for batch=%s row=%s fingerprint=%s",
+                            "Duplicate MTR card skipped for batch=%s row=%s guid=%s",
                             batch.id,
                             excel_row_number,
-                            row_fingerprint,
+                            guid,
                         )
                         continue
 
-                    seen_fingerprints.add(row_fingerprint)
-                    purchase = Purchase(
-                        batch_id=batch.id,
-                        row_fingerprint=row_fingerprint,
-                        raw_row_json=raw_row_json,
-                        **payload.model_dump(),
-                    )
-                    self.db.add(purchase)
+                    seen_guids.add(guid)
+                    card = MtrCard(batch_id=batch.id, raw_row_json=raw_row_json, **card_payload)
+                    self.db.add(card)
+                    self.db.flush()
+
+                    parsed_characteristics = self._parse_characteristics(row_values, headers)
+                    for characteristic in parsed_characteristics:
+                        characteristic_mappings.append(
+                            {
+                                "card_id": card.id,
+                                "char_name": characteristic.char_name,
+                                "char_value_raw": characteristic.char_value_raw,
+                                "char_unit": characteristic.char_unit,
+                                "char_type": characteristic.char_type.value,
+                                "value_numeric": characteristic.value_numeric,
+                                "range_min": characteristic.range_min,
+                                "range_max": characteristic.range_max,
+                                "value_text": characteristic.value_text,
+                            }
+                        )
+
+                    if len(characteristic_mappings) >= 1000:
+                        self.db.bulk_insert_mappings(CardCharacteristic, characteristic_mappings)
+                        characteristic_mappings.clear()
+
                     rows_success += 1
-                except (ValidationError, ValueError) as exc:
+                except Exception as exc:
                     rows_error += 1
                     self.db.add(
                         ImportError(
@@ -193,15 +156,13 @@ class ExcelImportService:
                         exc,
                     )
 
+            if characteristic_mappings:
+                self.db.bulk_insert_mappings(CardCharacteristic, characteristic_mappings)
+
             batch.rows_success = rows_success
             batch.rows_error = rows_error
             batch.rows_duplicate = rows_duplicate
-            if rows_error > 0:
-                batch.status = "completed_with_errors"
-            elif rows_duplicate > 0:
-                batch.status = "completed_with_duplicates"
-            else:
-                batch.status = "completed"
+            batch.status = self._resolve_batch_status(rows_error, rows_duplicate)
             self.db.commit()
             self.db.refresh(batch)
             return batch
@@ -220,7 +181,7 @@ class ExcelImportService:
             self.db.refresh(batch)
             return batch
 
-    def _read_excel(self, content: bytes) -> tuple[pd.DataFrame, int]:
+    def _read_excel(self, content: bytes) -> tuple[dict[str, str | None], int, list[str], pd.DataFrame]:
         raw_df = pd.read_excel(
             BytesIO(content),
             sheet_name=0,
@@ -230,107 +191,296 @@ class ExcelImportService:
         )
         header_idx = self._detect_header_row(raw_df)
         if header_idx is None:
-            raise ValueError("Failed to detect header row in Excel sheet")
+            raise ValueError("Не удалось определить строку заголовков в Excel.")
 
-        headers = normalize_column_names(raw_df.iloc[header_idx].tolist())
+        headers = [self._stringify_cell(value) or "" for value in raw_df.iloc[header_idx].tolist()]
+        meta_info = self._extract_meta_info(raw_df, header_idx)
         data_frame = raw_df.iloc[header_idx + 1 :].copy()
-        data_frame.columns = headers
+        data_frame.columns = [str(index) for index in range(len(headers))]
         data_frame = data_frame.dropna(how="all").reset_index(drop=True)
-        return data_frame, header_idx + 1
+        return meta_info, header_idx, headers, data_frame
 
     def _detect_header_row(self, raw_df: pd.DataFrame) -> int | None:
-        best_match: tuple[int, int] | None = None
-        for index in range(min(len(raw_df.index), 15)):
-            normalized_row = normalize_column_names(raw_df.iloc[index].tolist())
-            score = 0
-            for header in normalized_row:
-                if any(header in aliases for aliases in COLUMN_ALIASES.values()):
-                    score += 1
-            if best_match is None or score > best_match[1]:
-                best_match = (index, score)
-        if best_match and best_match[1] >= 3:
-            return best_match[0]
+        max_scan_rows = min(len(raw_df.index), 10)
+        for index in range(max_scan_rows):
+            row = [normalize_column_name(value) for value in raw_df.iloc[index].tolist()]
+            if "guid" in row and "наименование" in row:
+                return index
         return None
 
-    def _build_column_mapping(self, columns: list[str]) -> dict[str, str]:
-        mapping: dict[str, str] = {}
-        for column in columns:
-            normalized_column = normalize_column_name(column)
-            for field_name, aliases in COLUMN_ALIASES.items():
-                if normalized_column in aliases and field_name not in mapping:
-                    mapping[field_name] = column
-        return mapping
+    def _extract_meta_info(self, raw_df: pd.DataFrame, header_idx: int) -> dict[str, str | None]:
+        if header_idx == 0:
+            return {"class_name": None, "class_guid": None, "raw": None}
 
-    def _serialize_row(self, row: dict[str, Any]) -> dict[str, Any]:
-        return {str(key): make_json_safe(value) for key, value in row.items()}
-
-    def _purchase_exists(self, row_fingerprint: str) -> bool:
-        existing_purchase_id = self.db.scalar(
-            select(Purchase.id).where(Purchase.row_fingerprint == row_fingerprint)
+        raw_meta = " | ".join(
+            filter(
+                None,
+                [self._stringify_cell(value) for value in raw_df.iloc[header_idx - 1].tolist()],
+            )
         )
-        return existing_purchase_id is not None
+        if not raw_meta:
+            return {"class_name": None, "class_guid": None, "raw": None}
 
+        guid_match = re.search(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})", raw_meta)
+        class_name_match = re.search(r"Класс\s+МТР\s*\|?\s*(.+?)(?:\s*\|\s*[0-9a-fA-F-]{36})?$", raw_meta, flags=re.IGNORECASE)
+        return {
+            "class_name": compact_spaces(class_name_match.group(1)) if class_name_match else None,
+            "class_guid": guid_match.group(1) if guid_match else None,
+            "raw": raw_meta,
+        }
 
-def build_purchase_fingerprint(payload: PurchasePayload) -> str:
-    fingerprint_payload = {
-        "item_code": payload.item_code or "",
-        "item_name": payload.item_name,
-        "supplier_name": payload.supplier_name,
-        "amount": str(payload.amount) if payload.amount is not None else "",
-        "purchase_date": payload.purchase_date.isoformat() if payload.purchase_date else "",
-        "delivery_date": payload.delivery_date.isoformat() if payload.delivery_date else "",
-        "status": payload.status or "",
-    }
-    serialized = json.dumps(
-        fingerprint_payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+    def _build_main_field_indexes(self, headers: list[str]) -> dict[str, int]:
+        indexes: dict[str, int] = {}
+        for index, header in enumerate(headers[: MAIN_FIELD_LAST_INDEX + 1]):
+            normalized = normalize_column_name(header)
+            for field_name, aliases in MAIN_FIELDS.items():
+                if normalized in aliases and field_name not in indexes:
+                    indexes[field_name] = index
 
+        missing = [field for field in ("guid", "name") if field not in indexes]
+        if missing:
+            raise ValueError(f"В Excel отсутствуют обязательные колонки: {', '.join(missing)}")
+        return indexes
 
-def map_row_to_purchase(row: dict[str, Any], column_mapping: dict[str, str]) -> dict[str, Any]:
-    def get(field_name: str) -> Any:
-        column = column_mapping.get(field_name)
-        if column is None:
+    def _parse_card_row(self, row_values: list[Any], field_indexes: dict[str, int]) -> dict[str, Any]:
+        guid = self._parse_guid(self._value_by_index(row_values, field_indexes.get("guid")))
+        name = compact_spaces(self._value_by_index(row_values, field_indexes.get("name")))
+        if not name:
+            raise ValueError("Пустое наименование карточки.")
+
+        return {
+            "guid": guid,
+            "name": name,
+            "manufacturer_inn": self._clean_text(self._value_by_index(row_values, field_indexes.get("manufacturer_inn"))),
+            "manufacturer_inio": self._clean_text(self._value_by_index(row_values, field_indexes.get("manufacturer_inio"))),
+            "country_code": self._clean_text(self._value_by_index(row_values, field_indexes.get("country_code"))),
+            "article": self._clean_text(self._value_by_index(row_values, field_indexes.get("article"))),
+            "price": self._parse_price(self._value_by_index(row_values, field_indexes.get("price"))),
+            "price_date_start": self._parse_brif_date(self._value_by_index(row_values, field_indexes.get("price_date_start"))),
+            "price_date_end": self._parse_brif_date(self._value_by_index(row_values, field_indexes.get("price_date_end"))),
+            "description": self._clean_text(self._value_by_index(row_values, field_indexes.get("description"))),
+        }
+
+    def _parse_characteristics(self, row_values: list[Any], headers: list[str]) -> list[ParsedCharacteristic]:
+        characteristics: list[ParsedCharacteristic] = []
+        for index in range(CHARACTERISTICS_START_INDEX, len(headers), 2):
+            raw_header = headers[index] if index < len(headers) else ""
+            char_name = self._cleanup_characteristic_name(raw_header)
+            if not char_name:
+                continue
+
+            raw_value = self._stringify_cell(row_values[index] if index < len(row_values) else None)
+            raw_unit = self._stringify_cell(row_values[index + 1] if index + 1 < len(row_values) else None)
+            char_type = self._detect_characteristic_type(raw_header)
+
+            try:
+                characteristics.append(
+                    self._parse_characteristic_value(
+                        char_name=char_name,
+                        raw_value=raw_value,
+                        raw_unit=raw_unit,
+                        char_type=char_type,
+                    )
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Characteristic parsing error: name=%s value=%s reason=%s",
+                    char_name,
+                    raw_value,
+                    exc,
+                )
+                characteristics.append(
+                    ParsedCharacteristic(
+                        char_name=char_name,
+                        char_value_raw=raw_value,
+                        char_unit=raw_unit,
+                        char_type=char_type,
+                        value_text=raw_value,
+                    )
+                )
+        return characteristics
+
+    def _parse_characteristic_value(
+        self,
+        *,
+        char_name: str,
+        raw_value: str | None,
+        raw_unit: str | None,
+        char_type: CharacteristicType,
+    ) -> ParsedCharacteristic:
+        normalized_raw = self._normalize_characteristic_raw_value(raw_value)
+        characteristic = ParsedCharacteristic(
+            char_name=char_name,
+            char_value_raw=normalized_raw,
+            char_unit=self._clean_text(raw_unit),
+            char_type=char_type,
+        )
+        if normalized_raw is None:
+            return characteristic
+
+        if char_type == CharacteristicType.NUMBER:
+            characteristic.value_numeric = self._parse_decimal(normalized_raw)
+            return characteristic
+
+        if char_type == CharacteristicType.RANGE:
+            characteristic.range_min, characteristic.range_max = self._parse_range(normalized_raw)
+            return characteristic
+
+        if char_type == CharacteristicType.MULTIVALUE:
+            parts = [item.strip() for item in normalized_raw.split(";") if item.strip()]
+            characteristic.value_text = ";".join(parts) if parts else None
+            return characteristic
+
+        characteristic.value_text = normalized_raw
+        return characteristic
+
+    def _normalize_characteristic_raw_value(self, value: str | None) -> str | None:
+        text = self._clean_text(value)
+        if text is None:
             return None
-        return row.get(column)
+        if text in EMPTY_CHARACTERISTIC_MARKERS:
+            return None
+        return text
 
-    item_name = compact_spaces(get("item_name"))
-    supplier_name = compact_spaces(get("supplier_name"))
-    status_text = compact_spaces(get("status_text"))
-    category_code, category_name = split_classifier(get("category"))
+    def _cleanup_characteristic_name(self, raw_header: str | None) -> str:
+        header = self._clean_text(raw_header)
+        if header is None:
+            return ""
+        header = re.sub(r"\s*Тип данных\s*-\s*.*$", "", header, flags=re.IGNORECASE)
+        header = re.sub(r"\s*\(.*?(диапазон|список|набор значений|вещественное число|строка).*?\)\s*$", "", header, flags=re.IGNORECASE)
+        header = re.sub(r"\s*укажите.*$", "", header, flags=re.IGNORECASE)
+        return header.strip(" -")
 
-    manufacturer_name = compact_spaces(get("manufacturer_name"))
-    developer_name = compact_spaces(get("developer_name"))
-    supplier_contact = compact_spaces(get("supplier_contact"))
-    supplier_email = compact_spaces(get("supplier_email")) or extract_email(status_text)
+    def _detect_characteristic_type(self, raw_header: str | None) -> CharacteristicType:
+        header = (raw_header or "").lower()
+        if "вещественное число" in header or "(вещественное число)" in header:
+            return CharacteristicType.NUMBER
+        if "диапазон" in header or "(диапазон)" in header:
+            return CharacteristicType.RANGE
+        if "набор значений" in header or "мультивыбор" in header:
+            return CharacteristicType.MULTIVALUE
+        if "список" in header:
+            return CharacteristicType.LIST
+        if "строка" in header:
+            return CharacteristicType.STRING
+        return CharacteristicType.STRING
 
-    supplier_inn = (
-        extract_inn(get("supplier_name"))
-        or extract_inn(manufacturer_name)
-        or extract_inn(developer_name)
-    )
+    def _parse_guid(self, value: Any) -> str:
+        text = self._clean_text(value)
+        if text is None:
+            raise ValueError("GUID карточки отсутствует.")
+        if not re.fullmatch(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", text):
+            raise ValueError(f"Некорректный GUID карточки: {text}")
+        return text.lower()
 
-    purchase_date = parse_date(status_text, strict=False) if status_text else None
+    def _parse_price(self, value: Any) -> Decimal | None:
+        text = self._clean_text(value)
+        if text is None:
+            return None
+        normalized = text.replace("\xa0", "").replace(" ", "")
+        if re.fullmatch(r"\d{1,3}(,\d{3})+", normalized):
+            normalized = normalized.replace(",", "")
+        elif "," in normalized and "." not in normalized:
+            normalized = normalized.replace(",", ".")
+        normalized = re.sub(r"[^0-9.\-]", "", normalized)
+        if not normalized:
+            return None
+        try:
+            return Decimal(normalized).quantize(Decimal("0.01"))
+        except InvalidOperation as exc:
+            raise ValueError(f"Некорректная цена: {value}") from exc
 
-    return {
-        "item_code": normalize_empty(get("item_code")),
-        "item_name": item_name,
-        "category_code": category_code,
-        "category_name": category_name,
-        "purchase_date": purchase_date,
-        "supplier_name": supplier_name,
-        "supplier_inn": supplier_inn,
-        "supplier_contact": supplier_contact,
-        "supplier_email": supplier_email,
-        "customer_inn": normalize_empty(get("customer_inn")),
-        "amount": get("amount"),
-        "delivery_date": get("delivery_date"),
-        "status": extract_status_name(status_text),
-        "unit_name": normalize_empty(get("unit_name")),
-        "origin_country": normalize_empty(get("origin_country")),
-        "manufacturer_name": manufacturer_name,
-        "developer_name": developer_name,
-    }
+    def _parse_decimal(self, value: Any) -> Decimal | None:
+        if value is None:
+            return None
+        if isinstance(value, Decimal):
+            return value.quantize(Decimal("0.0001"))
+        if isinstance(value, (int, float)):
+            if isinstance(value, float) and math.isnan(value):
+                return None
+            return Decimal(str(value)).quantize(Decimal("0.0001"))
+
+        text = self._clean_text(value)
+        if text is None or text == "00":
+            return None
+        normalized = text.replace("\xa0", "").replace(" ", "").replace(",", ".")
+        normalized = re.sub(r"[^0-9.\-]", "", normalized)
+        if not normalized:
+            return None
+        try:
+            return Decimal(normalized).quantize(Decimal("0.0001"))
+        except InvalidOperation as exc:
+            raise ValueError(f"Некорректное числовое значение: {value}") from exc
+
+    def _parse_range(self, value: str) -> tuple[Decimal | None, Decimal | None]:
+        text = self._clean_text(value)
+        if text is None or text == "00/00":
+            return None, None
+        parts = [part.strip() for part in text.split("/", 1)]
+        if len(parts) != 2:
+            parsed = self._parse_decimal(text)
+            return parsed, parsed
+        range_min = None if parts[0] in {"", "00", "-"} else self._parse_decimal(parts[0])
+        range_max = None if parts[1] in {"", "00", "-"} else self._parse_decimal(parts[1])
+        return range_min, range_max
+
+    def _parse_brif_date(self, value: Any) -> date | None:
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value.date()
+        if isinstance(value, date):
+            return value
+
+        text = self._clean_text(value)
+        if text is None:
+            return None
+        for pattern in ("%Y.%m.%d", "%Y-%m-%d", "%d.%m.%Y"):
+            try:
+                return datetime.strptime(text, pattern).date()
+            except ValueError:
+                continue
+        raise ValueError(f"Некорректная дата: {value}")
+
+    def _serialize_row(self, headers: list[str], row_values: list[Any]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for index, header in enumerate(headers):
+            key = header or f"column_{index}"
+            result[key] = make_json_safe(row_values[index] if index < len(row_values) else None)
+        return result
+
+    def _guid_exists(self, guid: str) -> bool:
+        return self.db.scalar(select(MtrCard.id).where(MtrCard.guid == guid)) is not None
+
+    @staticmethod
+    def _value_by_index(row_values: list[Any], index: int | None) -> Any:
+        if index is None or index >= len(row_values):
+            return None
+        return row_values[index]
+
+    @staticmethod
+    def _stringify_cell(value: Any) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, float) and math.isnan(value):
+            return None
+        if isinstance(value, datetime):
+            return value.strftime("%Y.%m.%d")
+        if isinstance(value, date):
+            return value.isoformat()
+        return str(value).strip()
+
+    @staticmethod
+    def _clean_text(value: Any) -> str | None:
+        text = normalize_empty(value)
+        if text is None:
+            return None
+        return compact_spaces(text)
+
+    @staticmethod
+    def _resolve_batch_status(rows_error: int, rows_duplicate: int) -> str:
+        if rows_error > 0:
+            return "completed_with_errors"
+        if rows_duplicate > 0:
+            return "completed_with_duplicates"
+        return "completed"
